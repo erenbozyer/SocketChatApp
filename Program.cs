@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -12,9 +13,6 @@ using System.Windows.Forms;
 
 namespace TekDosyaWinFormsChat
 {
-    /// <summary>
-    /// Programın ana giriş noktası.
-    /// </summary>
     static class Program
     {
         [STAThread]
@@ -26,26 +24,21 @@ namespace TekDosyaWinFormsChat
         }
     }
 
-    /// <summary>
-    /// Tüm chat mantığını ve form tasarımını içeren ana sınıf.
-    /// </summary>
     public class ChatForm : Form
     {
         // --- Arayüz Kontrolleri ---
-        private TextBox txtIp;
-        private TextBox txtPort;
-        private TextBox txtNickname;
-        private TextBox txtChatLog;
-        private TextBox txtMessage;
-        private Button btnStartServer;
-        private Button btnConnect;
-        private Button btnSend;
+        private TextBox txtIp, txtPort, txtNickname, txtChatLog, txtMessage;
+        private Button btnStartServer, btnConnect, btnSend;
 
         // --- Ağ Değişkenleri ---
         private TcpListener server;
         private TcpClient client;
         private NetworkStream stream;
-        private readonly List<TcpClient> clientList = new List<TcpClient>();
+
+        // YENİ: Sunucu tarafında, istemcileri ve takma adlarını saklamak için bir sözlük (Dictionary) yapısı.
+        // Bu yapı, takma adların benzersiz olmasını kontrol etmek için kullanılacak.
+        private readonly Dictionary<TcpClient, string> clientNicknames = new Dictionary<TcpClient, string>();
+        private readonly object _lock = new object(); // Thread-safe sözlük erişimi için kilit nesnesi
 
         public ChatForm()
         {
@@ -60,13 +53,15 @@ namespace TekDosyaWinFormsChat
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            Label lblIp = new Label { Text = "IP Adresi:", Location = new Point(12, 15) };
-            txtIp = new TextBox { Text = "127.0.0.1", Location = new Point(12, 35), Size = new Size(120, 20) };
-            Label lblPort = new Label { Text = "Port:", Location = new Point(142, 15) };
-            txtPort = new TextBox { Text = "12345", Location = new Point(142, 35), Size = new Size(60, 20) };
-            Label lblNickname = new Label { Text = "Takma Ad:", Location = new Point(212, 15) };
-            txtNickname = new TextBox { Text = "Kullanici" + new Random().Next(1, 100), Location = new Point(212, 35), Size = new Size(120, 20) };
+            int portStartX = 12 + 120 + 10;
+            int nicknameStartX = portStartX + 60 + 10;
 
+            Label lblIp = new Label { Text = "IP Adresi:", Location = new Point(12, 15), AutoSize = true };
+            txtIp = new TextBox { Text = "127.0.0.1", Location = new Point(12, 35), Size = new Size(120, 20) };
+            Label lblPort = new Label { Text = "Port:", Location = new Point(portStartX, 15), AutoSize = true };
+            txtPort = new TextBox { Text = "12345", Location = new Point(portStartX, 35), Size = new Size(60, 20) };
+            Label lblNickname = new Label { Text = "Takma Ad:", Location = new Point(nicknameStartX, 15), AutoSize = true };
+            txtNickname = new TextBox { Text = "Kullanici" + new Random().Next(1, 100), Location = new Point(nicknameStartX, 35), Size = new Size(120, 20) };
             btnStartServer = new Button { Text = "Sunucu Olarak Başlat", Location = new Point(350, 33), Size = new Size(130, 23) };
             btnConnect = new Button { Text = "İstemci Olarak Bağlan", Location = new Point(490, 33), Size = new Size(130, 23) };
             txtChatLog = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, Location = new Point(12, 70), Size = new Size(610, 320) };
@@ -78,23 +73,14 @@ namespace TekDosyaWinFormsChat
             btnSend.Click += BtnSend_Click;
             this.FormClosing += ChatForm_FormClosing;
 
-            this.Controls.Add(lblIp); this.Controls.Add(txtIp);
-            this.Controls.Add(lblPort); this.Controls.Add(txtPort);
-            this.Controls.Add(lblNickname); this.Controls.Add(txtNickname);
-            this.Controls.Add(btnStartServer); this.Controls.Add(btnConnect);
-            this.Controls.Add(txtChatLog); this.Controls.Add(txtMessage);
-            this.Controls.Add(btnSend);
+            this.Controls.AddRange(new Control[] { lblIp, txtIp, lblPort, txtPort, lblNickname, txtNickname, btnStartServer, btnConnect, txtChatLog, txtMessage, btnSend });
         }
 
-        // --- OLAY METOTLARI (EVENT HANDLERS) ---
+        // --- OLAY METOTLARI ---
 
         private void BtnStartServer_Click(object sender, EventArgs e)
         {
-            btnStartServer.Enabled = false;
-            btnConnect.Enabled = false;
-            txtIp.Enabled = false;
-            txtPort.Enabled = false;
-            txtNickname.Enabled = false;
+            SetControlsForConnection(false);
             this.Text = "CHAT SUNUCUSU";
             Task.Run(() => StartServer());
         }
@@ -106,11 +92,7 @@ namespace TekDosyaWinFormsChat
                 MessageBox.Show("Lütfen bir takma ad girin.", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            btnStartServer.Enabled = false;
-            btnConnect.Enabled = false;
-            txtIp.Enabled = false;
-            txtPort.Enabled = false;
-            txtNickname.Enabled = false;
+            SetControlsForConnection(false);
             this.Text = $"CHAT İSTEMCİSİ - {txtNickname.Text}";
             Task.Run(() => ConnectToServer());
         }
@@ -119,8 +101,9 @@ namespace TekDosyaWinFormsChat
         {
             if (stream != null && !string.IsNullOrEmpty(txtMessage.Text))
             {
-                string fullMessage = $"{txtNickname.Text}: {txtMessage.Text}";
-                byte[] messageBytes = Encoding.UTF8.GetBytes(fullMessage);
+                // Artık mesajı direkt göndermek yerine bir protokol kullanıyoruz: "MSG|mesaj metni"
+                string messageToSend = $"MSG|{txtMessage.Text}";
+                byte[] messageBytes = Encoding.UTF8.GetBytes(messageToSend);
                 try
                 {
                     await stream.WriteAsync(messageBytes, 0, messageBytes.Length);
@@ -140,7 +123,7 @@ namespace TekDosyaWinFormsChat
             server?.Stop();
         }
 
-        // --- AĞ MANTIĞI (NETWORKING LOGIC) ---
+        // --- AĞ MANTIĞI (SERVER) ---
 
         private async Task StartServer()
         {
@@ -149,23 +132,24 @@ namespace TekDosyaWinFormsChat
                 int port = int.Parse(txtPort.Text);
                 server = new TcpListener(IPAddress.Any, port);
                 server.Start();
-                AppendTextToChatLog($"Sunucu başlatıldı. Port {port} dinleniyor...");
+
+                // YENİ: Sunucu başlangıç bilgilendirme mesajları.
+                string localIp = Dns.GetHostAddresses(Dns.GetHostName()).FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork)?.ToString() ?? "127.0.0.1";
+                AppendTextToChatLog($"Sunucu {localIp}:{port} adresinde başlatıldı.");
+                AppendTextToChatLog("Bu uygulama sunucu olarak ayarlanmıştır.");
+                AppendTextToChatLog("Sohbete katılmak için başka bir istemci açıp bu sunucuya bağlanın.");
+                AppendTextToChatLog("------------------------------------------------------");
 
                 while (true)
                 {
                     TcpClient connectedClient = await server.AcceptTcpClientAsync();
-                    clientList.Add(connectedClient);
-                    AppendTextToChatLog("Yeni bir istemci bağlandı.");
+                    // Her istemci için ayrı bir dinleyici başlat
                     Task.Run(() => HandleClient(connectedClient));
                 }
             }
-            catch (Exception ex) // DEĞİŞTİRİLDİ: Hata yakalama bloğu güncellendi.
+            catch (Exception ex)
             {
-                string errorMessage = $"Sunucu hatası: {ex.Message}";
-                AppendTextToChatLog(errorMessage);
-                // Kullanıcıya hatayı bir mesaj kutusu ile göster.
-                ShowErrorMessage(errorMessage);
-                // Hata sonrası arayüzü tekrar eski haline getir.
+                ShowErrorMessage($"Sunucu hatası: {ex.Message}");
                 ResetInitialControls();
             }
         }
@@ -174,39 +158,92 @@ namespace TekDosyaWinFormsChat
         {
             NetworkStream clientStream = tcpClient.GetStream();
             byte[] buffer = new byte[4096];
+            string nickname = null;
+
             try
             {
-                while (true)
+                // YENİ: İstemciden gelen ilk mesajın takma ad olmasını bekle
+                int bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
+                string initialMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+                // Gelen mesaj "NICK|kullaniciadi" formatında mı diye kontrol et
+                if (initialMessage.StartsWith("NICK|"))
                 {
-                    int bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
-                    string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    BroadcastMessage(message, tcpClient);
+                    nickname = initialMessage.Substring(5);
+                    lock (_lock)
+                    {
+                        if (clientNicknames.ContainsValue(nickname))
+                        {
+                            // Takma ad zaten alınmış, istemciye hata gönder ve bağlantıyı kapat.
+                            byte[] errorMsg = Encoding.UTF8.GetBytes("CMD|NICK_TAKEN");
+                            clientStream.Write(errorMsg, 0, errorMsg.Length);
+                            tcpClient.Close();
+                            return; // Bu istemci için işlemi sonlandır.
+                        }
+                        // Takma ad uygun, listeye ekle.
+                        clientNicknames.Add(tcpClient, nickname);
+                    }
+
+                    // Herkese yeni kullanıcının katıldığını duyur.
+                    string joinMessage = $"SİSTEM: '{nickname}' sohbete katıldı.";
+                    AppendTextToChatLog(joinMessage);
+                    BroadcastMessage(joinMessage, null); // null göndererek herkese gitmesini sağla
+                }
+                else
+                {
+                    // Protokole uymayan bağlantıyı kapat.
+                    tcpClient.Close();
+                    return;
+                }
+
+                // Normal mesajlaşma döngüsü
+                while ((bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    string incomingMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    if (incomingMessage.StartsWith("MSG|"))
+                    {
+                        string chatMessage = $"{nickname}: {incomingMessage.Substring(4)}";
+                        AppendTextToChatLog(chatMessage);
+                        BroadcastMessage(chatMessage, tcpClient);
+                    }
                 }
             }
             catch { /* Bağlantı koptu */ }
             finally
             {
-                clientList.Remove(tcpClient);
+                // İstemci ayrıldığında yapılacaklar
+                if (nickname != null)
+                {
+                    lock (_lock)
+                    {
+                        clientNicknames.Remove(tcpClient);
+                    }
+                    string leaveMessage = $"SİSTEM: '{nickname}' sohbetten ayrıldı.";
+                    AppendTextToChatLog(leaveMessage);
+                    BroadcastMessage(leaveMessage, null);
+                }
                 tcpClient.Close();
-                AppendTextToChatLog("Bir istemcinin bağlantısı kesildi.");
-                BroadcastMessage("Sistem: Bir kullanıcı sohbetten ayrıldı.", null);
             }
         }
 
+        // Sunucudaki tüm istemcilere mesaj yayan metot
         private void BroadcastMessage(string message, TcpClient sender)
         {
-            AppendTextToChatLog(message); // Sunucu kendi ekranında da mesajları görsün
             byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-            foreach (var connectedClient in clientList)
+            lock (_lock)
             {
-                if (connectedClient != sender)
+                foreach (var connectedClient in clientNicknames.Keys)
                 {
-                    try { connectedClient.GetStream().Write(messageBytes, 0, messageBytes.Length); }
-                    catch { /* Hata olursa o istemciyi görmezden gel */ }
+                    if (connectedClient != sender)
+                    {
+                        try { connectedClient.GetStream().Write(messageBytes, 0, messageBytes.Length); }
+                        catch { /* Hata olursa o istemciyi görmezden gel */ }
+                    }
                 }
             }
         }
+
+        // --- AĞ MANTIĞI (CLIENT) ---
 
         private async Task ConnectToServer()
         {
@@ -216,17 +253,16 @@ namespace TekDosyaWinFormsChat
                 await client.ConnectAsync(txtIp.Text, int.Parse(txtPort.Text));
                 stream = client.GetStream();
 
-                AppendTextToChatLog("Sunucuya başarıyla bağlandı!");
+                // YENİ: Bağlanır bağlanmaz sunucuya takma adımızı bildiriyoruz.
+                byte[] nickMessage = Encoding.UTF8.GetBytes($"NICK|{txtNickname.Text}");
+                await stream.WriteAsync(nickMessage, 0, nickMessage.Length);
+
                 SetSendEnabled(true);
-                await ReceiveMessages();
+                await ReceiveMessages(); // Mesajları dinlemeye başla
             }
-            catch (Exception ex) // DEĞİŞTİRİLDİ: Hata yakalama bloğu güncellendi.
+            catch (Exception ex)
             {
-                string errorMessage = $"Bağlantı hatası: {ex.Message}";
-                AppendTextToChatLog(errorMessage);
-                // Kullanıcıya hatayı bir mesaj kutusu ile göster.
-                ShowErrorMessage(errorMessage);
-                // Hata sonrası arayüzü tekrar eski haline getir.
+                ShowErrorMessage($"Bağlantı hatası: {ex.Message}");
                 ResetInitialControls();
             }
         }
@@ -239,12 +275,19 @@ namespace TekDosyaWinFormsChat
                 while (true)
                 {
                     int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0)
-                    {
-                        AppendTextToChatLog("Sunucu ile bağlantı kesildi.");
-                        break;
-                    }
+                    if (bytesRead == 0) break; // Sunucu bağlantıyı kapattı
+
                     string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+                    // YENİ: Sunucudan özel komut gelip gelmediğini kontrol et
+                    if (message == "CMD|NICK_TAKEN")
+                    {
+                        ShowErrorMessage("Bu takma ad zaten kullanılıyor. Lütfen farklı bir ad seçin.");
+                        ResetInitialControls();
+                        client.Close();
+                        return;
+                    }
+
                     AppendTextToChatLog(message);
                 }
             }
@@ -255,11 +298,11 @@ namespace TekDosyaWinFormsChat
             finally
             {
                 SetSendEnabled(false);
-                client.Close();
+                client?.Close();
             }
         }
 
-        // --- YARDIMCI METOTLAR (HELPER METHODS) ---
+        // --- YARDIMCI METOTLAR ---
 
         private void AppendTextToChatLog(string text)
         {
@@ -273,9 +316,23 @@ namespace TekDosyaWinFormsChat
             }
         }
 
+        private void SetControlsForConnection(bool enabled)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action<bool>(SetControlsForConnection), enabled);
+                return;
+            }
+            btnStartServer.Enabled = enabled;
+            btnConnect.Enabled = enabled;
+            txtIp.Enabled = enabled;
+            txtPort.Enabled = enabled;
+            txtNickname.Enabled = enabled;
+        }
+
         private void SetSendEnabled(bool enabled)
         {
-            if (txtMessage.InvokeRequired || btnSend.InvokeRequired)
+            if (txtMessage.InvokeRequired)
             {
                 this.Invoke(new Action<bool>(SetSendEnabled), enabled);
             }
@@ -286,35 +343,17 @@ namespace TekDosyaWinFormsChat
             }
         }
 
-        // YENİ EKLENDİ: Hata durumunda başlangıç kontrollerini tekrar aktif eden metot.
         private void ResetInitialControls()
         {
-            if (this.InvokeRequired)
-            {
-                this.Invoke(new Action(ResetInitialControls));
-            }
-            else
-            {
-                btnStartServer.Enabled = true;
-                btnConnect.Enabled = true;
-                txtIp.Enabled = true;
-                txtPort.Enabled = true;
-                txtNickname.Enabled = true;
-                this.Text = "Tek Dosya Chat Uygulaması";
-            }
+            SetControlsForConnection(true);
+            if (this.InvokeRequired) this.Invoke(new Action(() => this.Text = "Tek Dosya Chat Uygulaması"));
+            else this.Text = "Tek Dosya Chat Uygulaması";
         }
 
-        // YENİ EKLENDİ: Thread-safe (farklı iş parçacıklarından güvenle çağrılabilir) hata mesajı kutusu gösteren metot.
         private void ShowErrorMessage(string message)
         {
-            if (this.InvokeRequired)
-            {
-                this.Invoke(new Action<string>(ShowErrorMessage), message);
-            }
-            else
-            {
-                MessageBox.Show(this, message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            if (this.InvokeRequired) this.Invoke(new Action<string>(ShowErrorMessage), message);
+            else MessageBox.Show(this, message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 }
