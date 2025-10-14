@@ -1,5 +1,5 @@
 # SocketChatApp
-# ✨ Tek Dosya C# WinForms Sohbet Uygulaması
+# ✨ C# WinForms Sohbet Uygulaması
 
 Bu proje, **tek bir C# dosyası** içerisinde geliştirilmiş, veritabanı gerektirmeyen, çok kullanıcılı bir TCP soket sohbet uygulamasıdır. Hem sunucu (Server) hem de istemci (Client) olarak çalışabilir. C# ile soket programlama ve arayüz tasarımının kodla nasıl yapılabileceğini öğrenmek için harika bir başlangıç noktasıdır.
 
