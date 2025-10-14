@@ -1,4 +1,7 @@
-﻿using System;
+﻿// Bu kodun tamamını projenizdeki Program.cs dosyasına yapıştırın.
+// Diğer tüm form dosyalarını (Form1.cs, Form1.Designer.cs) sildiğinizden emin olun.
+
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Net;
@@ -19,7 +22,6 @@ namespace TekDosyaWinFormsChat
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            // Formu başlat
             Application.Run(new ChatForm());
         }
     }
@@ -43,63 +45,44 @@ namespace TekDosyaWinFormsChat
         private TcpListener server;
         private TcpClient client;
         private NetworkStream stream;
-        // Sunucuya bağlanan tüm istemcileri bu listede tutacağız.
         private readonly List<TcpClient> clientList = new List<TcpClient>();
 
         public ChatForm()
         {
-            // Formun kendisini ve içindeki kontrolleri kod ile oluşturuyoruz.
             InitializeComponents();
         }
 
-        /// <summary>
-        /// Formun ve üzerindeki tüm kontrollerin manuel olarak oluşturulduğu metot.
-        /// Visual Studio'nun Designer.cs'te yaptığı işi burada tek dosyada yapıyoruz.
-        /// </summary>
         private void InitializeComponents()
         {
-            // --- Form Ayarları ---
             this.Text = "Tek Dosya Chat Uygulaması";
             this.Size = new Size(650, 500);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // --- Kontrolleri Oluşturma ---
             Label lblIp = new Label { Text = "IP Adresi:", Location = new Point(12, 15) };
             txtIp = new TextBox { Text = "127.0.0.1", Location = new Point(12, 35), Size = new Size(120, 20) };
-
             Label lblPort = new Label { Text = "Port:", Location = new Point(142, 15) };
             txtPort = new TextBox { Text = "12345", Location = new Point(142, 35), Size = new Size(60, 20) };
-
             Label lblNickname = new Label { Text = "Takma Ad:", Location = new Point(212, 15) };
             txtNickname = new TextBox { Text = "Kullanici" + new Random().Next(1, 100), Location = new Point(212, 35), Size = new Size(120, 20) };
 
             btnStartServer = new Button { Text = "Sunucu Olarak Başlat", Location = new Point(350, 33), Size = new Size(130, 23) };
             btnConnect = new Button { Text = "İstemci Olarak Bağlan", Location = new Point(490, 33), Size = new Size(130, 23) };
-
             txtChatLog = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, Location = new Point(12, 70), Size = new Size(610, 320) };
-
             txtMessage = new TextBox { Location = new Point(12, 400), Size = new Size(500, 20), Enabled = false };
             btnSend = new Button { Text = "Gönder", Location = new Point(522, 398), Size = new Size(100, 23), Enabled = false };
 
-            // --- Olayları (Events) Bağlama ---
             btnStartServer.Click += BtnStartServer_Click;
             btnConnect.Click += BtnConnect_Click;
             btnSend.Click += BtnSend_Click;
-            this.FormClosing += ChatForm_FormClosing; // Form kapanırken bağlantıları temizle
+            this.FormClosing += ChatForm_FormClosing;
 
-            // --- Kontrolleri Forma Ekleme ---
-            this.Controls.Add(lblIp);
-            this.Controls.Add(txtIp);
-            this.Controls.Add(lblPort);
-            this.Controls.Add(txtPort);
-            this.Controls.Add(lblNickname);
-            this.Controls.Add(txtNickname);
-            this.Controls.Add(btnStartServer);
-            this.Controls.Add(btnConnect);
-            this.Controls.Add(txtChatLog);
-            this.Controls.Add(txtMessage);
+            this.Controls.Add(lblIp); this.Controls.Add(txtIp);
+            this.Controls.Add(lblPort); this.Controls.Add(txtPort);
+            this.Controls.Add(lblNickname); this.Controls.Add(txtNickname);
+            this.Controls.Add(btnStartServer); this.Controls.Add(btnConnect);
+            this.Controls.Add(txtChatLog); this.Controls.Add(txtMessage);
             this.Controls.Add(btnSend);
         }
 
@@ -107,15 +90,12 @@ namespace TekDosyaWinFormsChat
 
         private void BtnStartServer_Click(object sender, EventArgs e)
         {
-            // Arayüzü ayarla
             btnStartServer.Enabled = false;
             btnConnect.Enabled = false;
             txtIp.Enabled = false;
             txtPort.Enabled = false;
             txtNickname.Enabled = false;
             this.Text = "CHAT SUNUCUSU";
-
-            // Sunucuyu arayüzü kilitlemeden arka planda başlat
             Task.Run(() => StartServer());
         }
 
@@ -126,16 +106,12 @@ namespace TekDosyaWinFormsChat
                 MessageBox.Show("Lütfen bir takma ad girin.", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
-            // Arayüzü ayarla
             btnStartServer.Enabled = false;
             btnConnect.Enabled = false;
             txtIp.Enabled = false;
             txtPort.Enabled = false;
             txtNickname.Enabled = false;
             this.Text = $"CHAT İSTEMCİSİ - {txtNickname.Text}";
-
-            // Sunucuya arayüzü kilitlemeden arka planda bağlanmayı dene
             Task.Run(() => ConnectToServer());
         }
 
@@ -148,7 +124,7 @@ namespace TekDosyaWinFormsChat
                 try
                 {
                     await stream.WriteAsync(messageBytes, 0, messageBytes.Length);
-                    AppendTextToChatLog($"Ben: {txtMessage.Text}"); // Kendi gönderdiğin mesajı da ekle
+                    AppendTextToChatLog($"Ben: {txtMessage.Text}");
                     txtMessage.Clear();
                 }
                 catch (Exception ex)
@@ -160,7 +136,6 @@ namespace TekDosyaWinFormsChat
 
         private void ChatForm_FormClosing(object sender, FormClosingEventArgs e)
         {
-            // Form kapanırken tüm bağlantıları düzgünce kapat
             client?.Close();
             server?.Stop();
         }
@@ -181,14 +156,17 @@ namespace TekDosyaWinFormsChat
                     TcpClient connectedClient = await server.AcceptTcpClientAsync();
                     clientList.Add(connectedClient);
                     AppendTextToChatLog("Yeni bir istemci bağlandı.");
-
-                    // Her istemci için ayrı bir dinleyici başlat
                     Task.Run(() => HandleClient(connectedClient));
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) // DEĞİŞTİRİLDİ: Hata yakalama bloğu güncellendi.
             {
-                AppendTextToChatLog($"Sunucu hatası: {ex.Message}");
+                string errorMessage = $"Sunucu hatası: {ex.Message}";
+                AppendTextToChatLog(errorMessage);
+                // Kullanıcıya hatayı bir mesaj kutusu ile göster.
+                ShowErrorMessage(errorMessage);
+                // Hata sonrası arayüzü tekrar eski haline getir.
+                ResetInitialControls();
             }
         }
 
@@ -201,10 +179,8 @@ namespace TekDosyaWinFormsChat
                 while (true)
                 {
                     int bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break; // İstemci bağlantıyı kapattı
-
+                    if (bytesRead == 0) break;
                     string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    AppendTextToChatLog($"Alındı: {message}");
                     BroadcastMessage(message, tcpClient);
                 }
             }
@@ -220,15 +196,13 @@ namespace TekDosyaWinFormsChat
 
         private void BroadcastMessage(string message, TcpClient sender)
         {
+            AppendTextToChatLog(message); // Sunucu kendi ekranında da mesajları görsün
             byte[] messageBytes = Encoding.UTF8.GetBytes(message);
             foreach (var connectedClient in clientList)
             {
-                if (connectedClient != sender) // Mesajı gönderene geri yollama
+                if (connectedClient != sender)
                 {
-                    try
-                    {
-                        connectedClient.GetStream().Write(messageBytes, 0, messageBytes.Length);
-                    }
+                    try { connectedClient.GetStream().Write(messageBytes, 0, messageBytes.Length); }
                     catch { /* Hata olursa o istemciyi görmezden gel */ }
                 }
             }
@@ -243,17 +217,17 @@ namespace TekDosyaWinFormsChat
                 stream = client.GetStream();
 
                 AppendTextToChatLog("Sunucuya başarıyla bağlandı!");
-
-                // Mesaj gönderme arayüzünü aktif et
                 SetSendEnabled(true);
-
-                // Sunucudan gelen mesajları dinlemeye başla
                 await ReceiveMessages();
             }
-            catch (Exception ex)
+            catch (Exception ex) // DEĞİŞTİRİLDİ: Hata yakalama bloğu güncellendi.
             {
-                AppendTextToChatLog($"Bağlantı hatası: {ex.Message}");
-                SetSendEnabled(false);
+                string errorMessage = $"Bağlantı hatası: {ex.Message}";
+                AppendTextToChatLog(errorMessage);
+                // Kullanıcıya hatayı bir mesaj kutusu ile göster.
+                ShowErrorMessage(errorMessage);
+                // Hata sonrası arayüzü tekrar eski haline getir.
+                ResetInitialControls();
             }
         }
 
@@ -287,26 +261,18 @@ namespace TekDosyaWinFormsChat
 
         // --- YARDIMCI METOTLAR (HELPER METHODS) ---
 
-        /// <summary>
-        /// Farklı bir thread'den gelse bile ChatLog TextBox'ına güvenli bir şekilde metin ekler.
-        /// </summary>
         private void AppendTextToChatLog(string text)
         {
             if (txtChatLog.InvokeRequired)
             {
-                // Başka bir thread'den çağrıldı, ana UI thread'ine yönlendir
                 txtChatLog.Invoke(new Action<string>(AppendTextToChatLog), text);
             }
             else
             {
-                // UI thread'inden çağrıldı, direkt ekle
                 txtChatLog.AppendText(text + Environment.NewLine);
             }
         }
 
-        /// <summary>
-        /// Mesaj gönderme kontrollerini güvenli bir şekilde aktif/pasif hale getirir.
-        /// </summary>
         private void SetSendEnabled(bool enabled)
         {
             if (txtMessage.InvokeRequired || btnSend.InvokeRequired)
@@ -317,6 +283,37 @@ namespace TekDosyaWinFormsChat
             {
                 txtMessage.Enabled = enabled;
                 btnSend.Enabled = enabled;
+            }
+        }
+
+        // YENİ EKLENDİ: Hata durumunda başlangıç kontrollerini tekrar aktif eden metot.
+        private void ResetInitialControls()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(ResetInitialControls));
+            }
+            else
+            {
+                btnStartServer.Enabled = true;
+                btnConnect.Enabled = true;
+                txtIp.Enabled = true;
+                txtPort.Enabled = true;
+                txtNickname.Enabled = true;
+                this.Text = "Tek Dosya Chat Uygulaması";
+            }
+        }
+
+        // YENİ EKLENDİ: Thread-safe (farklı iş parçacıklarından güvenle çağrılabilir) hata mesajı kutusu gösteren metot.
+        private void ShowErrorMessage(string message)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action<string>(ShowErrorMessage), message);
+            }
+            else
+            {
+                MessageBox.Show(this, message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
