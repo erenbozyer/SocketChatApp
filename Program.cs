@@ -1,6 +1,3 @@
-﻿// Bu kodun tamamını projenizdeki Program.cs dosyasına yapıştırın.
-// Diğer tüm form dosyalarını (Form1.cs, Form1.Designer.cs) sildiğinizden emin olun.
-
 using System;
 using System.Collections.Generic;
 using System.Drawing;
